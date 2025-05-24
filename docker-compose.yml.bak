@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Solo PostgreSQL
+  postgres:
+    image: postgres:14
+    container_name: airline-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - airline-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
+    container_name: airline-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT}:8000"
+    networks:
+      - airline-network
+    depends_on:
+      - flight-service
+
+  # Servicio de Vuelos (el único funcional)
+  flight-service:
+    build: ./services/flight-service
+    container_name: airline-flight-service
+    environment:
+      - ENV=${ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
+    ports:
+      - "${FLIGHT_SERVICE_PORT}:8000"
+    networks:
+      - airline-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  airline-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

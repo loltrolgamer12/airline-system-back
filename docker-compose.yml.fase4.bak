@@ -11,13 +11,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d airline"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
-    networks:
-      - airline-network
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -30,14 +28,11 @@ services:
       - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - airline-network
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
 
   flight-service:
     build: ./services/flight-service
@@ -60,8 +55,6 @@ services:
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
-    networks:
-      - airline-network
 
   passenger-service:
     build: ./services/passenger-service
@@ -78,54 +71,12 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    networks:
-      - airline-network
-
-  reservation-service:
-    build: ./services/reservation-service
-    container_name: airline-reservation-service
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres123
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: airline
-      FLIGHT_SERVICE_URL: http://flight-service:8000
-      PASSENGER_SERVICE_URL: http://passenger-service:8000
-    ports:
-      - "8003:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      flight-service:
-        condition: service_started
-      passenger-service:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - airline-network
 
   api-gateway:
     build: ./api-gateway
     container_name: airline-api-gateway
     ports:
       - "8000:8000"
-    networks:
-      - airline-network
-
-  monitoring:
-    image: nginx:alpine
-    container_name: airline-monitoring
-    ports:
-      - "9090:80"
-    volumes:
-      - ./monitoring:/usr/share/nginx/html:ro
-    networks:
-      - airline-network
-
-networks:
-  airline-network:
-    driver: bridge
 
 volumes:
   postgres_data:

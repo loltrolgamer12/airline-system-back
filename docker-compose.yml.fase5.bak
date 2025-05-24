@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d airline"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -30,14 +30,13 @@ services:
       - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - airline-network
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+    networks:
+      - airline-network
 
   flight-service:
     build: ./services/flight-service
@@ -110,16 +109,6 @@ services:
     container_name: airline-api-gateway
     ports:
       - "8000:8000"
-    networks:
-      - airline-network
-
-  monitoring:
-    image: nginx:alpine
-    container_name: airline-monitoring
-    ports:
-      - "9090:80"
-    volumes:
-      - ./monitoring:/usr/share/nginx/html:ro
     networks:
       - airline-network
 

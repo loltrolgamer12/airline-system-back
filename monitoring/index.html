@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airline System Monitoring</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f7fa; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 0; text-align: center; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .service-status { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+        .status-indicator { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; }
+        .healthy { background-color: #10b981; }
+        .unhealthy { background-color: #ef4444; }
+        .loading { background-color: #f59e0b; }
+        .metric { display: flex; justify-content: space-between; margin: 10px 0; }
+        .refresh-btn { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        .refresh-btn:hover { background: #2563eb; }
+        h1 { margin: 0; }
+        h2 { color: #374151; margin-bottom: 15px; }
+        .timestamp { color: #6b7280; font-size: 0.9em; text-align: center; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛫 Airline System Monitoring Dashboard</h1>
+        <p>Real-time monitoring of microservices architecture</p>
+    </div>
+    
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <button class="refresh-btn" onclick="refreshAll()">🔄 Refresh All Services</button>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>🛡️ System Overview</h2>
+                <div id="system-overview">
+                    <div class="metric">
+                        <span>Total Services:</span>
+                        <span id="total-services">6</span>
+                    </div>
+                    <div class="metric">
+                        <span>Healthy Services:</span>
+                        <span id="healthy-services">-</span>
+                    </div>
+                    <div class="metric">
+                        <span>System Uptime:</span>
+                        <span id="system-uptime">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>✈️ Flight Service</h2>
+                <div class="service-status">
+                    <div>
+                        <span class="status-indicator loading" id="flight-status"></span>
+                        <span>Status: <span id="flight-status-text">Loading...</span></span>
+                    </div>
+                </div>
+                <div id="flight-metrics">
+                    <div class="metric">
+                        <span>Database:</span>
+                        <span id="flight-db">-</span>
+                    </div>
+                    <div class="metric">
+                        <span>Response Time:</span>
+                        <span id="flight-response">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>👥 Passenger Service</h2>
+                <div class="service-status">
+                    <div>
+                        <span class="status-indicator loading" id="passenger-status"></span>
+                        <span>Status: <span id="passenger-status-text">Loading...</span></span>
+                    </div>
+                </div>
+                <div id="passenger-metrics">
+                    <div class="metric">
+                        <span>Database:</span>
+                        <span id="passenger-db">-</span>
+                    </div>
+                    <div class="metric">
+                        <span>Response Time:</span>
+                        <span id="passenger-response">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎫 Reservation Service</h2>
+                <div class="service-status">
+                    <div>
+                        <span class="status-indicator loading" id="reservation-status"></span>
+                        <span>Status: <span id="reservation-status-text">Loading...</span></span>
+                    </div>
+                </div>
+                <div id="reservation-metrics">
+                    <div class="metric">
+                        <span>Database:</span>
+                        <span id="reservation-db">-</span>
+                    </div>
+                    <div class="metric">
+                        <span>Circuit Breakers:</span>
+                        <span id="reservation-cb">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🐘 PostgreSQL</h2>
+                <div class="service-status">
+                    <div>
+                        <span class="status-indicator loading" id="postgres-status"></span>
+                        <span>Status: <span id="postgres-status-text">Loading...</span></span>
+                    </div>
+                </div>
+                <div id="postgres-metrics">
+                    <div class="metric">
+                        <span>Connections:</span>
+                        <span id="postgres-connections">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🐰 RabbitMQ</h2>
+                <div class="service-status">
+                    <div>
+                        <span class="status-indicator loading" id="rabbitmq-status"></span>
+                        <span>Status: <span id="rabbitmq-status-text">Loading...</span></span>
+                    </div>
+                </div>
+                <div id="rabbitmq-metrics">
+                    <div class="metric">
+                        <span>Queues:</span>
+                        <span id="rabbitmq-queues">-</span>
+                    </div>
+                    <div class="metric">
+                        <span>Messages:</span>
+                        <span id="rabbitmq-messages">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="timestamp" id="last-update">
+            Last updated: -
+        </div>
+    </div>
+
+    <script>
+        async function checkService(url, serviceId) {
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                document.getElementById(`${serviceId}-status`).className = 'status-indicator healthy';
+                document.getElementById(`${serviceId}-status-text`).textContent = 'Healthy';
+                
+                return { status: 'healthy', data: data };
+            } catch (error) {
+                document.getElementById(`${serviceId}-status`).className = 'status-indicator unhealthy';  
+                document.getElementById(`${serviceId}-status-text`).textContent = 'Unhealthy';
+                
+                return { status: 'unhealthy', error: error.message };
+            }
+        }
+        
+        async function refreshAll() {
+            document.getElementById('last-update').textContent = 'Last updated: Refreshing...';
+            
+            // Check all services
+            const services = [
+                { url: 'http://localhost:8001/health', id: 'flight' },
+                { url: 'http://localhost:8002/health', id: 'passenger' },
+                { url: 'http://localhost:8003/health', id: 'reservation' }
+            ];
+            
+            let healthyCount = 0;
+            
+            for (const service of services) {
+                const result = await checkService(service.url, service.id);
+                if (result.status === 'healthy') {
+                    healthyCount++;
+                    
+                    // Update specific metrics
+                    if (service.id === 'flight' && result.data.database) {
+                        document.getElementById('flight-db').textContent = result.data.database;
+                    }
+                    if (service.id === 'passenger' && result.data.database) {
+                        document.getElementById('passenger-db').textContent = result.data.database;
+                    }
+                    if (service.id === 'reservation' && result.data.circuit_breakers) {
+                        const cbStats = result.data.circuit_breakers;
+                        document.getElementById('reservation-db').textContent = result.data.database || '-';
+                        document.getElementById('reservation-cb').textContent = 
+                            `DB: ${cbStats.database?.state || 'unknown'}, HTTP: ${cbStats.http?.state || 'unknown'}`;
+                    }
+                }
+            }
+            
+            // Update system overview
+            document.getElementById('healthy-services').textContent = `${healthyCount}/3`;
+            document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleString()}`;
+        }
+        
+        // Auto-refresh every 30 seconds
+        refreshAll();
+        setInterval(refreshAll, 30000);
+    </script>
+</body>
+</html>
