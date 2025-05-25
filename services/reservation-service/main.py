@@ -11,31 +11,30 @@ import time
 import httpx
 import random
 import string
+from enum import Enum
 from circuit_breaker import database_circuit_breaker, http_circuit_breaker
 
-# Configuración de base de datos
+# Configuración
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres123")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "airline")
 
-# URLs de otros microservicios
 FLIGHT_SERVICE_URL = os.getenv("FLIGHT_SERVICE_URL", "http://flight-service:8000")
 PASSENGER_SERVICE_URL = os.getenv("PASSENGER_SERVICE_URL", "http://passenger-service:8000")
 
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-print(f"🎫 Reservation Service with Circuit Breakers")
-print(f"🔗 Flight Service URL: {FLIGHT_SERVICE_URL}")
-print(f"🔗 Passenger Service URL: {PASSENGER_SERVICE_URL}")
+print(f"🎫 Reservation Service Enhanced")
+print(f"🔗 Flight Service: {FLIGHT_SERVICE_URL}")
+print(f"🔗 Passenger Service: {PASSENGER_SERVICE_URL}")
 
-# Función de retry para conexión a BD con Circuit Breaker
 def create_engine_with_circuit_breaker(database_url, max_retries=10, retry_delay=3):
     retries = 0
     while retries < max_retries:
         try:
-            print(f"📡 Reservation Service - Intento conexión {retries + 1}/{max_retries}...")
+            print(f"📡 Reservation Service - Conexión {retries + 1}/{max_retries}...")
             
             def create_engine_protected():
                 engine = create_engine(database_url)
@@ -44,25 +43,28 @@ def create_engine_with_circuit_breaker(database_url, max_retries=10, retry_delay
                 return engine
             
             engine = database_circuit_breaker.call(create_engine_protected)
-            print("✅ Reservation Service conectado a PostgreSQL con Circuit Breaker")
+            print("✅ Reservation Service conectado con Circuit Breaker")
             return engine
             
         except Exception as e:
             retries += 1
             print(f"❌ Error conectando (intento {retries}): {e}")
             if retries < max_retries:
-                print(f"⏳ Esperando {retry_delay} segundos...")
                 time.sleep(retry_delay)
             else:
-                print("💥 Reservation Service: No se pudo conectar a PostgreSQL")
                 raise e
 
-# Crear engine con circuit breaker
 engine = create_engine_with_circuit_breaker(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Modelo de base de datos
+class ReservationStatus(str, Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CHECKED_IN = "checked_in"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+
 class Reservation(Base):
     __tablename__ = "reservations"
     
@@ -71,22 +73,20 @@ class Reservation(Base):
     passenger_identification = Column(String(20), nullable=False)
     flight_number = Column(String(10), nullable=False)
     seat_number = Column(String(5), nullable=True)
-    status = Column(String(20), nullable=False, default="pending")
+    status = Column(String(20), nullable=False, default=ReservationStatus.PENDING.value)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    checked_in_at = Column(DateTime, nullable=True)
 
-# Crear tablas con circuit breaker
-print("🏗️ Creando tablas de reservas con Circuit Breaker...")
+print("🏗️ Creando tablas de reservas...")
 try:
     def create_tables():
         Base.metadata.create_all(bind=engine)
-    
     database_circuit_breaker.call(create_tables)
-    print("✅ Tablas de reservas creadas con Circuit Breaker")
+    print("✅ Tablas creadas con Circuit Breaker")
 except Exception as e:
     print(f"❌ Error creando tablas: {e}")
 
-# Schemas Pydantic
 class ReservationCreate(BaseModel):
     passenger_identification: str
     flight_number: str
@@ -105,13 +105,13 @@ class ReservationResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    checked_in_at: Optional[datetime]
     passenger_info: Optional[dict] = None
     flight_info: Optional[dict] = None
 
     class Config:
         from_attributes = True
 
-# Dependencia para obtener sesión de DB con Circuit Breaker
 def get_db():
     def get_session():
         return SessionLocal()
@@ -122,91 +122,86 @@ def get_db():
     finally:
         db.close()
 
-# Funciones para comunicarse con otros microservicios usando Circuit Breaker
 async def verify_flight_exists(flight_number: str) -> Optional[dict]:
-    """Verificar que el vuelo existe en Flight Service con Circuit Breaker"""
     try:
-        print(f"🔍 Verificando vuelo {flight_number} con Circuit Breaker...")
-        response = await http_circuit_breaker.http_request(
-            "GET", 
-            f"{FLIGHT_SERVICE_URL}/api/v1/flights/{flight_number}"
-        )
-        
-        if response.status_code == 200:
-            flight_info = response.json()
-            print(f"✅ Vuelo {flight_number} encontrado: {flight_info['origin_airport']} → {flight_info['destination_airport']}")
-            return flight_info
-        else:
-            print(f"❌ Vuelo {flight_number} no encontrado")
-            return None
+        print(f"🔍 Verificando vuelo {flight_number}...")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{FLIGHT_SERVICE_URL}/api/v1/flights/{flight_number}")
             
+            if response.status_code == 200:
+                flight_info = response.json()
+                print(f"✅ Vuelo encontrado: {flight_info['origin_airport']} → {flight_info['destination_airport']}")
+                return flight_info
+            else:
+                print(f"❌ Vuelo {flight_number} no encontrado")
+                return None
     except Exception as e:
-        print(f"❌ Circuit Breaker: Error verificando vuelo {flight_number}: {e}")
+        print(f"❌ Error verificando vuelo: {e}")
         return None
 
 async def verify_passenger_exists(identification: str) -> Optional[dict]:
-    """Verificar que el pasajero existe en Passenger Service con Circuit Breaker"""
     try:
-        print(f"🔍 Verificando pasajero {identification} con Circuit Breaker...")
-        response = await http_circuit_breaker.http_request(
-            "GET", 
-            f"{PASSENGER_SERVICE_URL}/api/v1/passengers/{identification}"
-        )
-        
-        if response.status_code == 200:
-            passenger_info = response.json()
-            print(f"✅ Pasajero {identification} encontrado: {passenger_info['first_name']} {passenger_info['last_name']}")
-            return passenger_info
-        else:
-            print(f"❌ Pasajero {identification} no encontrado")
-            return None
+        print(f"🔍 Verificando pasajero {identification}...")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PASSENGER_SERVICE_URL}/api/v1/passengers/{identification}")
             
+            if response.status_code == 200:
+                passenger_info = response.json()
+                print(f"✅ Pasajero encontrado: {passenger_info['first_name']} {passenger_info['last_name']}")
+                return passenger_info
+            else:
+                print(f"❌ Pasajero {identification} no encontrado")
+                return None
     except Exception as e:
-        print(f"❌ Circuit Breaker: Error verificando pasajero {identification}: {e}")
+        print(f"❌ Error verificando pasajero: {e}")
         return None
 
+async def update_flight_seats(flight_number: str, seats_change: int):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.patch(
+                f"{FLIGHT_SERVICE_URL}/api/v1/flights/{flight_number}/seats",
+                params={"seats_change": seats_change}
+            )
+            return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Error actualizando asientos: {e}")
+        return False
+
 def generate_reservation_code() -> str:
-    """Generar código de reserva único de 6 caracteres"""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 def assign_seat(flight_number: str, db: Session, preferred_seat: Optional[str] = None) -> str:
-    """Asignar asiento automáticamente o usar el preferido con Circuit Breaker"""
-    def get_existing_seats():
-        return db.query(Reservation).filter(
-            Reservation.flight_number == flight_number,
-            Reservation.status.in_(["confirmed", "pending"])
-        ).count()
-    
     if preferred_seat:
         def check_seat_availability():
             return db.query(Reservation).filter(
                 Reservation.flight_number == flight_number,
                 Reservation.seat_number == preferred_seat,
-                Reservation.status.in_(["confirmed", "pending"])
+                Reservation.status.in_(["confirmed", "checked_in"])
             ).first()
         
         existing = database_circuit_breaker.call(check_seat_availability)
         if not existing:
             return preferred_seat
-        else:
-            print(f"⚠️ Asiento {preferred_seat} no disponible, asignando automáticamente...")
     
-    # Asignación automática con circuit breaker
+    def get_existing_seats():
+        return db.query(Reservation).filter(
+            Reservation.flight_number == flight_number,
+            Reservation.status.in_(["confirmed", "checked_in"])
+        ).count()
+    
     existing_seats = database_circuit_breaker.call(get_existing_seats)
-    
     row = (existing_seats // 6) + 1
-    seat_letter = chr(65 + (existing_seats % 6))  # A, B, C, D, E, F
+    seat_letter = chr(65 + (existing_seats % 6))
     seat_number = f"{row}{seat_letter}"
     
-    print(f"💺 Asiento asignado automáticamente: {seat_number}")
+    print(f"💺 Asiento asignado: {seat_number}")
     return seat_number
 
-# Función para publicar eventos
 def publish_event(event_type: str, data: dict):
     print(f"📤 RESERVATION EVENT: {event_type} - {data}")
 
-# FastAPI App
-app = FastAPI(title="Reservation Service with Circuit Breakers", version="2.0.0")
+app = FastAPI(title="Reservation Service Enhanced", version="2.0.0")
 
 @app.get("/health")
 def health_check():
@@ -255,7 +250,8 @@ def get_reservations(skip: int = 0, limit: int = 100, db: Session = Depends(get_
         seat_number=reservation.seat_number,
         status=reservation.status,
         created_at=reservation.created_at,
-        updated_at=reservation.updated_at
+        updated_at=reservation.updated_at,
+        checked_in_at=reservation.checked_in_at
     ) for reservation in reservations]
 
 @app.get("/api/v1/reservations/{reservation_code}", response_model=ReservationResponse)
@@ -269,7 +265,7 @@ async def get_reservation(reservation_code: str, db: Session = Depends(get_db)):
     if not reservation:
         raise HTTPException(status_code=404, detail="Reservation not found")
     
-    # Obtener información adicional con circuit breaker
+    # Obtener información adicional
     passenger_info = await verify_passenger_exists(reservation.passenger_identification)
     flight_info = await verify_flight_exists(reservation.flight_number)
     
@@ -282,39 +278,37 @@ async def get_reservation(reservation_code: str, db: Session = Depends(get_db)):
         status=reservation.status,
         created_at=reservation.created_at,
         updated_at=reservation.updated_at,
+        checked_in_at=reservation.checked_in_at,
         passenger_info=passenger_info,
         flight_info=flight_info
     )
 
 @app.post("/api/v1/reservations", response_model=ReservationResponse, status_code=201)
 async def create_reservation(reservation_data: ReservationCreate, db: Session = Depends(get_db)):
-    print(f"🎫 Creando reserva con Circuit Breakers para pasajero {reservation_data.passenger_identification}")
+    print(f"🎫 Creando reserva para pasajero {reservation_data.passenger_identification}")
     
-    # Verificaciones con circuit breaker
+    # Verificaciones
     flight_info = await verify_flight_exists(reservation_data.flight_number)
     if not flight_info:
-        raise HTTPException(status_code=404, detail=f"Flight {reservation_data.flight_number} not found or service unavailable")
+        raise HTTPException(status_code=404, detail=f"Flight {reservation_data.flight_number} not found")
     
     passenger_info = await verify_passenger_exists(reservation_data.passenger_identification)
     if not passenger_info:
-        raise HTTPException(status_code=404, detail=f"Passenger {reservation_data.passenger_identification} not found or service unavailable")
+        raise HTTPException(status_code=404, detail=f"Passenger {reservation_data.passenger_identification} not found")
     
-    # Verificar reserva existente con circuit breaker
+    # Verificar reserva existente
     def check_existing_reservation():
         return db.query(Reservation).filter(
             Reservation.passenger_identification == reservation_data.passenger_identification,
             Reservation.flight_number == reservation_data.flight_number,
-            Reservation.status.in_(["confirmed", "pending"])
+            Reservation.status.in_(["confirmed", "checked_in"])
         ).first()
     
     existing_reservation = database_circuit_breaker.call(check_existing_reservation)
     if existing_reservation:
-        raise HTTPException(
-            status_code=409, 
-            detail=f"Passenger already has a reservation for flight {reservation_data.flight_number}"
-        )
+        raise HTTPException(status_code=409, detail="Passenger already has a reservation for this flight")
     
-    # Generar código único con circuit breaker
+    # Generar código único
     reservation_code = generate_reservation_code()
     def check_code_uniqueness():
         return db.query(Reservation).filter(Reservation.reservation_code == reservation_code).first()
@@ -322,17 +316,17 @@ async def create_reservation(reservation_data: ReservationCreate, db: Session = 
     while database_circuit_breaker.call(check_code_uniqueness):
         reservation_code = generate_reservation_code()
     
-    # Asignar asiento con circuit breaker
+    # Asignar asiento
     seat_number = assign_seat(reservation_data.flight_number, db, reservation_data.seat_number)
     
-    # Crear reserva con circuit breaker
+    # Crear reserva
     def create_reservation_protected():
         db_reservation = Reservation(
             reservation_code=reservation_code,
             passenger_identification=reservation_data.passenger_identification,
             flight_number=reservation_data.flight_number,
             seat_number=seat_number,
-            status="confirmed"
+            status=ReservationStatus.CONFIRMED.value
         )
         
         db.add(db_reservation)
@@ -342,7 +336,9 @@ async def create_reservation(reservation_data: ReservationCreate, db: Session = 
     
     db_reservation = database_circuit_breaker.call(create_reservation_protected)
     
-    # Publicar evento
+    # Actualizar asientos disponibles en el vuelo
+    await update_flight_seats(reservation_data.flight_number, -1)
+    
     publish_event("reservation.created", {
         "reservation_id": str(db_reservation.id),
         "reservation_code": db_reservation.reservation_code,
@@ -351,7 +347,7 @@ async def create_reservation(reservation_data: ReservationCreate, db: Session = 
         "seat": seat_number
     })
     
-    print(f"✅ Reserva creada exitosamente con Circuit Breakers: {reservation_code}")
+    print(f"✅ Reserva creada: {reservation_code}")
     
     return ReservationResponse(
         id=str(db_reservation.id),
@@ -362,13 +358,60 @@ async def create_reservation(reservation_data: ReservationCreate, db: Session = 
         status=db_reservation.status,
         created_at=db_reservation.created_at,
         updated_at=db_reservation.updated_at,
+        checked_in_at=db_reservation.checked_in_at,
         passenger_info=passenger_info,
         flight_info=flight_info
     )
 
+@app.put("/api/v1/reservations/{reservation_code}/status", response_model=ReservationResponse)
+async def update_reservation_status(reservation_code: str, new_status: str, db: Session = Depends(get_db)):
+    def get_reservation_protected():
+        return db.query(Reservation).filter(
+            Reservation.reservation_code == reservation_code
+        ).first()
+    
+    reservation = database_circuit_breaker.call(get_reservation_protected)
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    
+    # Validar estado
+    if new_status not in [status.value for status in ReservationStatus]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    old_status = reservation.status
+    reservation.status = new_status
+    reservation.updated_at = datetime.utcnow()
+    
+    if new_status == ReservationStatus.CHECKED_IN.value:
+        reservation.checked_in_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(reservation)
+    
+    # Si cancela, liberar asiento
+    if new_status == ReservationStatus.CANCELLED.value and old_status in ["confirmed", "checked_in"]:
+        await update_flight_seats(reservation.flight_number, 1)
+    
+    publish_event("reservation.status_updated", {
+        "reservation_code": reservation_code,
+        "old_status": old_status,
+        "new_status": new_status
+    })
+    
+    return ReservationResponse(
+        id=str(reservation.id),
+        reservation_code=reservation.reservation_code,
+        passenger_identification=reservation.passenger_identification,
+        flight_number=reservation.flight_number,
+        seat_number=reservation.seat_number,
+        status=reservation.status,
+        created_at=reservation.created_at,
+        updated_at=reservation.updated_at,
+        checked_in_at=reservation.checked_in_at
+    )
+
 @app.get("/api/v1/circuit-breaker/stats")
 def get_circuit_breaker_stats():
-    """Endpoint para monitorear el estado de los circuit breakers"""
     return {
         "database_circuit_breaker": database_circuit_breaker.get_stats(),
         "http_circuit_breaker": http_circuit_breaker.get_stats(),
@@ -378,10 +421,10 @@ def get_circuit_breaker_stats():
 @app.get("/")
 def root():
     return {
-        "message": "Reservation Service with Advanced Circuit Breakers", 
+        "message": "Reservation Service Enhanced v2.0", 
         "status": "active",
         "version": "2.0.0",
-        "features": ["circuit_breakers", "resilience", "monitoring"],
+        "features": ["circuit_breakers", "status_management", "seat_assignment", "cross_service_validation"],
         "database": f"{POSTGRES_HOST}:{POSTGRES_PORT}",
         "circuit_breakers": {
             "database": database_circuit_breaker.get_stats(),
@@ -389,7 +432,54 @@ def root():
         }
     }
 
+def create_sample_reservations():
+    print("🎫 Creando reservas de muestra...")
+    db = SessionLocal()
+    try:
+        count = db.query(Reservation).count()
+        if count == 0:
+            sample_reservations = [
+                Reservation(
+                    reservation_code="ABC123",
+                    passenger_identification="12345678",
+                    flight_number="AV101",
+                    seat_number="1A",
+                    status=ReservationStatus.CONFIRMED.value
+                ),
+                Reservation(
+                    reservation_code="DEF456",
+                    passenger_identification="87654321",
+                    flight_number="AV102",
+                    seat_number="15B",
+                    status=ReservationStatus.CHECKED_IN.value,
+                    checked_in_at=datetime.utcnow()
+                ),
+                Reservation(
+                    reservation_code="GHI789",
+                    passenger_identification="11223344",
+                    flight_number="AV201",
+                    seat_number="8C",
+                    status=ReservationStatus.CONFIRMED.value
+                )
+            ]
+            
+            for reservation in sample_reservations:
+                db.add(reservation)
+            
+            db.commit()
+            print("✅ Reservas de muestra creadas")
+        else:
+            print(f"ℹ️ Ya existen {count} reservas")
+    except Exception as e:
+        print(f"❌ Error creando reservas de muestra: {e}")
+    finally:
+        db.close()
+
+@app.on_event("startup")
+def startup_event():
+    create_sample_reservations()
+
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Iniciando Reservation Service with Circuit Breakers...")
+    print("🚀 Iniciando Enhanced Reservation Service...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
