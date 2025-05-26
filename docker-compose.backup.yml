@@ -39,25 +39,6 @@ services:
       retries: 5
       start_period: 60s
 
-  user-service:
-    build: ./services/user-service
-    container_name: airline-user-service
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres123
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: airline
-      JWT_SECRET: airline-secret-key-2025
-    ports:
-      - "8004:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - airline-network
-
   flight-service:
     build: ./services/flight-service
     container_name: airline-flight-service
@@ -127,20 +108,8 @@ services:
   api-gateway:
     build: ./api-gateway
     container_name: airline-api-gateway
-    environment:
-      FLIGHT_SERVICE_URL: http://flight-service:8000
-      PASSENGER_SERVICE_URL: http://passenger-service:8000
-      RESERVATION_SERVICE_URL: http://reservation-service:8000
-      USER_SERVICE_URL: http://user-service:8000
-      JWT_SECRET: airline-secret-key-2025
     ports:
       - "8000:8000"
-    depends_on:
-      - user-service
-      - flight-service
-      - passenger-service
-      - reservation-service
-    restart: unless-stopped
     networks:
       - airline-network
 
