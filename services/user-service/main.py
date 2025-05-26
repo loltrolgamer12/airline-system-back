@@ -381,7 +381,43 @@ def create_default_admin():
 def startup_event():
     create_default_admin()
 
+
+@app.post("/api/v1/auth/register", response_model=UserResponse, status_code=201)
+async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Endpoint público para registro de usuarios (solo pasajeros)"""
+    # Verificar si ya existe
+    existing = db.query(User).filter(User.email == user_data.email).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="User already exists")
+    
+    # Solo permitir registro como pasajero
+    if user_data.role != UserRole.PASSENGER:
+        user_data.role = UserRole.PASSENGER
+    
+    # Crear nuevo usuario
+    db_user = User(
+        email=user_data.email,
+        password_hash=hash_password(user_data.password),
+        name=user_data.name,
+        role=user_data.role.value
+    )
+    
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    return UserResponse(
+        id=str(db_user.id),
+        email=db_user.email,
+        name=db_user.name,
+        role=db_user.role,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        last_login=db_user.last_login
+    )
+
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Iniciando User Authentication Service...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

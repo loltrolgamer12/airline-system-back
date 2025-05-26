@@ -140,7 +140,6 @@ services:
       - flight-service
       - passenger-service
       - reservation-service
-    restart: unless-stopped
     networks:
       - airline-network
 

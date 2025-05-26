@@ -7,6 +7,7 @@ import os
 import logging
 from datetime import datetime
 import uvicorn
+import time
 import jwt
 
 # Configurar logging
@@ -24,6 +25,31 @@ SERVICES = {
     "reservation": os.getenv("RESERVATION_SERVICE_URL", "http://reservation-service:8000"),
     "user": os.getenv("USER_SERVICE_URL", "http://user-service:8000")
 }
+
+
+# Middleware de logging mejorado
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start_time = time.time()
+    
+    # Log de request
+    logger.info(f"🔍 {request.method} {request.url.path} - IP: {request.client.host}")
+    
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        
+        # Log de response
+        status_emoji = "✅" if response.status_code < 400 else "❌"
+        logger.info(f"{status_emoji} {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
+        
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+        
+    except Exception as e:
+        process_time = time.time() - start_time
+        logger.error(f"💥 {request.method} {request.url.path} - ERROR - {process_time:.3f}s: {str(e)}")
+        raise
 
 app = FastAPI(
     title="Enhanced Airline System API Gateway",
@@ -246,9 +272,18 @@ async def auth_login_proxy(request: Request):
 async def auth_logout_proxy(request: Request):
     return await proxy_request("user", "/api/v1/auth/logout", request.method, request)
 
+
+@app.api_route("/api/v1/auth/register", methods=["POST"])
+async def auth_register_proxy(request: Request):
+    """Proxy para registro de usuarios"""
+    return await proxy_request("user", "/api/v1/auth/register", request.method, request)
+
 @app.api_route("/api/v1/auth/me", methods=["GET"])
 async def auth_me_proxy(request: Request):
     return await proxy_request("user", "/api/v1/auth/me", request.method, request)
+@app.api_route("/api/v1/auth/register", methods=["POST"])
+async def auth_register_proxy(request: Request):
+    return await proxy_request("user", "/api/v1/auth/register", request.method, request)
 
 # User management routes (User Service)
 @app.api_route("/api/v1/users/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -297,4 +332,7 @@ async def circuit_breaker_stats(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
 
