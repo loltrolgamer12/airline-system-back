@@ -1,4 +1,17 @@
 services:
+  # Load Balancer
+  nginx-lb:
+    build: ./nginx
+    container_name: airline-nginx-lb
+    ports:  
+      - "80:80"
+    depends_on:
+      - api-gateway-1
+      - api-gateway-2
+    networks:
+      - airline-network
+
+  # Infraestructura
   postgres:
     image: postgres:14
     container_name: airline-postgres
@@ -39,6 +52,7 @@ services:
       retries: 5
       start_period: 60s
 
+  # Servicios Core
   user-service:
     build: ./services/user-service
     container_name: airline-user-service
@@ -124,15 +138,75 @@ services:
     networks:
       - airline-network
 
-  api-gateway:
+  # Nuevos Servicios
+  airport-service:
+    build: ./services/airport-service
+    container_name: airline-airport-service
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: airline
+    ports:
+      - "8005:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - airline-network
+
+  aircraft-service:
+    build: ./services/aircraft-service
+    container_name: airline-aircraft-service
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: airline
+    ports:
+      - "8006:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - airline-network
+
+  crew-service:
+    build: ./services/crew-service
+    container_name: airline-crew-service
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: airline
+    ports:
+      - "8007:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - airline-network
+
+  # API Gateway Instances
+  api-gateway-1:
     build: ./api-gateway
-    container_name: airline-api-gateway
+    container_name: airline-api-gateway-1
     environment:
       FLIGHT_SERVICE_URL: http://flight-service:8000
       PASSENGER_SERVICE_URL: http://passenger-service:8000
       RESERVATION_SERVICE_URL: http://reservation-service:8000
       USER_SERVICE_URL: http://user-service:8000
+      AIRPORT_SERVICE_URL: http://airport-service:8000
+      AIRCRAFT_SERVICE_URL: http://aircraft-service:8000
+      CREW_SERVICE_URL: http://crew-service:8000
       JWT_SECRET: airline-secret-key-2025
+      INSTANCE_ID: "gateway-1"
     ports:
       - "8000:8000"
     depends_on:
@@ -140,9 +214,41 @@ services:
       - flight-service
       - passenger-service
       - reservation-service
+      - airport-service
+      - aircraft-service
+      - crew-service
     networks:
       - airline-network
+    restart: unless-stopped
 
+  api-gateway-2:
+    build: ./api-gateway
+    container_name: airline-api-gateway-2
+    environment:
+      FLIGHT_SERVICE_URL: http://flight-service:8000
+      PASSENGER_SERVICE_URL: http://passenger-service:8000
+      RESERVATION_SERVICE_URL: http://reservation-service:8000
+      USER_SERVICE_URL: http://user-service:8000
+      AIRPORT_SERVICE_URL: http://airport-service:8000
+      AIRCRAFT_SERVICE_URL: http://aircraft-service:8000
+      CREW_SERVICE_URL: http://crew-service:8000
+      JWT_SECRET: airline-secret-key-2025
+      INSTANCE_ID: "gateway-2"
+    ports:
+      - "8080:8000"
+    depends_on:
+      - user-service
+      - flight-service
+      - passenger-service
+      - reservation-service
+      - airport-service
+      - aircraft-service
+      - crew-service
+    networks:
+      - airline-network
+    restart: unless-stopped
+
+  # Monitoring
   monitoring:
     image: nginx:alpine
     container_name: airline-monitoring
